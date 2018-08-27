@@ -1,4 +1,4 @@
-package main
+package screenshot
 
 import (
 	"encoding/json"
@@ -8,10 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 )
 
+// Write a javascript file to some temporary location
+// that is the input of the phantomjs call
 func preparePhantom() (string, error) {
 	mkscreenshot_js := `
 var page = require('webpage').create();
@@ -43,21 +46,24 @@ page.open(address, function(status) {
 	return jsfile, nil
 }
 
+// Run phantomjs and wait for it to finish
 func callPhantom(url string, destpath string, wg *sync.WaitGroup, sema chan struct{}, jsfile string) error {
 	sema <- struct{}{}
 	defer func() { <-sema }()
 	defer wg.Done()
 	cmd := exec.Command("phantomjs", jsfile, url, destpath)
-	fmt.Println(cmd.Args)
+	fmt.Println("screenshot", url, "→", destpath)
 	err := cmd.Run()
 	return err
 }
 
+// Remove the temporary javascript file for phantomjs
 func finishPhantom(jsfile string) {
 	os.RemoveAll(jsfile)
 }
 
-// Remove all paths used in the domain list
+// Remove all paths used in the domain list to have an empty
+// directory for the screenshots.
 func clearScreenshotsPath(screeshotpath string, filelist []string) error {
 	domainlist := make(map[string]bool)
 
@@ -78,6 +84,7 @@ func clearScreenshotsPath(screeshotpath string, filelist []string) error {
 	return nil
 }
 
+// Read one of the JSON files given on the command line
 func readJsonURLList(jsonpath string) ([]string, error) {
 	var localurllist []string
 	fmt.Println("Trying to read json file", jsonpath)
@@ -97,7 +104,8 @@ func readJsonURLList(jsonpath string) ([]string, error) {
 	return localurllist, nil
 }
 
-func doscreenshots(jsonfiles []string) error {
+// The “main” function for the screenshot part.
+func Dothings(jsonfiles []string) error {
 	curwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -122,7 +130,7 @@ func doscreenshots(jsonfiles []string) error {
 		return err
 	}
 
-	const maxClients = 8
+	maxClients := runtime.NumCPU() * 2
 	var wg sync.WaitGroup
 	sema := make(chan struct{}, maxClients)
 
@@ -144,34 +152,4 @@ func doscreenshots(jsonfiles []string) error {
 	wg.Wait()
 	finishPhantom(jsfile)
 	return nil
-}
-
-func main() {
-	if len(os.Args) == 1 {
-		fmt.Printf("Usage: %s [.json*] [dir1 dir2]\n", filepath.Base(os.Args[0]))
-		os.Exit(0)
-	}
-	jsonfiles := []string{}
-	screenshotpaths := []string{}
-	for _, v := range os.Args[1:] {
-		fi, err := os.Stat(v)
-		if err == nil && !fi.IsDir() {
-			jsonfiles = append(jsonfiles, v)
-		} else {
-			screenshotpaths = append(screenshotpaths, v)
-		}
-	}
-
-	if false {
-		fmt.Println("jsonfiles", jsonfiles)
-		fmt.Println("screenshotpaths", screenshotpaths)
-	}
-
-	if len(jsonfiles) > 0 {
-		err := doscreenshots(jsonfiles)
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(-1)
-		}
-	}
 }
