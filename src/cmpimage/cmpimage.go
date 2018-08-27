@@ -26,7 +26,7 @@ var (
 )
 
 // Run compare from imagemagick
-func compare(path, cmppath, diffpath, relpath string) error {
+func compare(path, cmppath, diffpath, relpath string) {
 	defer wg.Done()
 	sema <- struct{}{}
 	defer func() { <-sema }()
@@ -36,7 +36,6 @@ func compare(path, cmppath, diffpath, relpath string) error {
 	if err != nil {
 		images = append(images, relpath)
 	}
-	return err
 }
 
 // Recurse into the first directory and assume that the second directory has the
@@ -138,7 +137,7 @@ func startcompare() error {
 		destpath = filepath.Join(curwd, destpath)
 	}
 
-	diffdir = filepath.Join(os.TempDir(), "diff")
+	diffdir = filepath.Join(os.TempDir(), "cmpimage-diff")
 	os.RemoveAll(diffdir)
 
 	filepath.Walk(startpath, recurse)
