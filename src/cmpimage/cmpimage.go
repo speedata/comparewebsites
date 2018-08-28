@@ -158,19 +158,28 @@ func startcompare() error {
 	return nil
 }
 
+type pathURL map[string]string
+
 // Create a json file of the differences and write it into the
 // current directory
 func jsonit() error {
-	guessHostname := filepath.Base(destpath)
+	r, err := os.Open(filepath.Join(destpath, "mapping.json"))
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	dec := json.NewDecoder(r)
+	var mapping pathURL
+	err = dec.Decode(&mapping)
+	if err != nil {
+		return err
+	}
 	var jsonbuf bytes.Buffer
 	var tojson []string
 	for _, img := range images {
-		p := strings.TrimSuffix(img, ".png")
-		if strings.HasSuffix(p, "index.html") {
-			p = strings.TrimSuffix(p, "index.html")
+		if m := mapping[img]; m != "" {
+			tojson = append(tojson, m)
 		}
-		tojson = append(tojson, "http://"+guessHostname+"/"+p)
-
 	}
 	b, err := json.Marshal(tojson)
 	if err != nil {
@@ -185,6 +194,7 @@ func jsonit() error {
 	defer outfile.Close()
 	jsonbuf.WriteTo(outfile)
 	fmt.Println("json:", jsonpath)
+
 	return nil
 }
 

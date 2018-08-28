@@ -1,6 +1,7 @@
 package screenshot
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -104,6 +105,27 @@ func readJsonURLList(jsonpath string) ([]string, error) {
 	return localurllist, nil
 }
 
+func writeMapping(mapping pathURL, screenshotpath string) error {
+	var jsonbuf bytes.Buffer
+	b, err := json.Marshal(mapping)
+	if err != nil {
+		return err
+	}
+	json.Indent(&jsonbuf, b, "", " ")
+
+	jsonpath := filepath.Join(screenshotpath, "mapping.json")
+	outfile, err := os.Create(jsonpath)
+	if err != nil {
+		return err
+	}
+	defer outfile.Close()
+	jsonbuf.WriteTo(outfile)
+
+	return nil
+}
+
+type pathURL map[string]string
+
 // The “main” function for the screenshot part.
 func Dothings(jsonfiles []string) error {
 	curwd, err := os.Getwd()
@@ -129,13 +151,20 @@ func Dothings(jsonfiles []string) error {
 	if err != nil {
 		return err
 	}
+	defer finishPhantom(jsfile)
 
-	maxClients := runtime.NumCPU() * 2
 	var wg sync.WaitGroup
-	sema := make(chan struct{}, maxClients)
 
-	for _, thisfile := range urllist {
-		u, err := url.Parse(thisfile)
+	// maximum processes in parallel
+	// This channel has  just enough room to store n
+	// "null" objects. Before start of an external process,
+	// we try to add an object to the channel (which might block),
+	// after the process ends, we remove a null object from the channel,
+	// so the next process can start.
+	sema := make(chan struct{}, runtime.NumCPU()*2)
+	mapping := make(map[string]pathURL)
+	for _, thisurl := range urllist {
+		u, err := url.Parse(thisurl)
 		if err != nil {
 			return err
 		}
@@ -144,12 +173,16 @@ func Dothings(jsonfiles []string) error {
 			destpath = destpath + "/index.html"
 		}
 		destpath = destpath + ".png"
-
+		if _, ok := mapping[u.Hostname()]; !ok {
+			mapping[u.Hostname()] = make(pathURL)
+		}
+		mapping[u.Hostname()][strings.TrimPrefix(destpath, u.Hostname()+"/")] = thisurl
 		wg.Add(1)
-		go callPhantom(thisfile, filepath.Join(screeshotpath, destpath), &wg, sema, jsfile)
-
+		go callPhantom(thisurl, filepath.Join(screeshotpath, destpath), &wg, sema, jsfile)
 	}
 	wg.Wait()
-	finishPhantom(jsfile)
+	for k, v := range mapping {
+		writeMapping(v, filepath.Join(screeshotpath, k))
+	}
 	return nil
 }
